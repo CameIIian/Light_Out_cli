@@ -161,8 +161,8 @@ class LightsOutGame:
 
 def board_to_text(board: list[list[int]]) -> str:
     size = len(board)
-    header = "x→   " + " ".join(f"{i:>2}" for i in range(size))
-    lines = [header, "y"]
+    header = " y x" + " ".join(f"{i:>2}" for i in range(size))
+    lines = [header] # , " y"]
     for y, row in enumerate(board):
         symbols = " ".join(f"{('#' if cell else '.'):>2}" for cell in row)
         lines.append(f"{y:>2}  {symbols}")
