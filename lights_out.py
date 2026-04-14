@@ -84,26 +84,100 @@ class LightsOutGame:
         self.initial_board = self._generate_solvable_board()
         self.restart()
 
+    def set_size(self, size: int) -> None:
+        if size < 3:
+            raise ValueError("Board size must be 3 or larger")
+        self.size = size
+        self.initial_board = self._generate_solvable_board()
+        self.state = GameState(board=self._copy_board(self.initial_board), size=self.size)
+
+    def solve_current_board(self) -> list[tuple[int, int]] | None:
+        """Return one valid solution move sequence for current board, or None if unsolvable."""
+        n = self.size * self.size
+        matrix = [0] * n
+        rhs = [0] * n
+
+        for y in range(self.size):
+            for x in range(self.size):
+                row = y * self.size + x
+                bits = 0
+                for nx, ny in self._neighbors(x, y):
+                    bits |= 1 << (ny * self.size + nx)
+                matrix[row] = bits
+                rhs[row] = self.state.board[y][x]
+
+        pivots: list[int] = []
+        pivot_row = 0
+        for col in range(n):
+            sel = -1
+            for row in range(pivot_row, n):
+                if (matrix[row] >> col) & 1:
+                    sel = row
+                    break
+            if sel == -1:
+                continue
+
+            matrix[pivot_row], matrix[sel] = matrix[sel], matrix[pivot_row]
+            rhs[pivot_row], rhs[sel] = rhs[sel], rhs[pivot_row]
+
+            for row in range(n):
+                if row != pivot_row and ((matrix[row] >> col) & 1):
+                    matrix[row] ^= matrix[pivot_row]
+                    rhs[row] ^= rhs[pivot_row]
+
+            pivots.append(col)
+            pivot_row += 1
+            if pivot_row == n:
+                break
+
+        for row in range(pivot_row, n):
+            if matrix[row] == 0 and rhs[row]:
+                return None
+
+        solution = [0] * n
+        for row in range(pivot_row - 1, -1, -1):
+            col = pivots[row]
+            value = rhs[row]
+            tail = matrix[row] >> (col + 1)
+            idx = col + 1
+            while tail:
+                if tail & 1:
+                    value ^= solution[idx]
+                idx += 1
+                tail >>= 1
+            solution[col] = value
+
+        moves = []
+        for i, pressed in enumerate(solution):
+            if pressed:
+                x = i % self.size
+                y = i // self.size
+                moves.append((x, y))
+        return moves
+
     def elapsed(self) -> float:
         return time.time() - self.state.started_at
 
 
 def board_to_text(board: list[list[int]]) -> str:
     size = len(board)
-    header = "   " + " ".join(str(i) for i in range(size))
-    lines = [header]
+    header = "x→   " + " ".join(f"{i:>2}" for i in range(size))
+    lines = [header, "y"]
     for y, row in enumerate(board):
-        symbols = " ".join("#" if cell else "." for cell in row)
-        lines.append(f"{y}  {symbols}")
+        symbols = " ".join(f"{('#' if cell else '.'):>2}" for cell in row)
+        lines.append(f"{y:>2}  {symbols}")
     return "\n".join(lines)
 
 
 def print_help(size: int) -> None:
     print("Commands:")
-    print("  x y   : Toggle cell (x, y) and its orthogonal neighbors")
+    print("  x y            : Toggle cell (x=column, y=row) and orthogonal neighbors")
     print("  q     : Quit")
     print("  r     : Restart current board")
-    print("  n     : Generate a new solvable board")
+    print("  n     : Generate a new solvable board (uses selected difficulty)")
+    print("  d LEVEL: Select next difficulty (easy/normal/hard/lunatic)")
+    print("  hint  : Show one recommended move")
+    print("  ans   : Show one full solution for current board")
     print("  h     : Show this help")
     print("  s     : Show board again")
     print(f"  valid coordinates: 0..{size - 1}")
@@ -139,9 +213,11 @@ def run_cli(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"Error: {exc}")
         return 2
+    pending_size = game.size
 
     print("Lights Out (CUI)")
     print("Turn all lights OFF (.)")
+    print("Coordinate guide: x = column (horizontal), y = row (vertical)")
     print_help(game.size)
     print(board_to_text(game.state.board))
 
@@ -173,9 +249,46 @@ def run_cli(argv: list[str] | None = None) -> int:
             print(board_to_text(game.state.board))
             continue
         if raw == "n":
-            game.new_game()
+            if pending_size != game.size:
+                game.set_size(pending_size)
+                print(f"Applied difficulty change. New board size: {game.size}x{game.size}")
+            else:
+                game.new_game()
             print("Generated new game.")
             print(board_to_text(game.state.board))
+            continue
+        if raw.startswith("d "):
+            level = raw.split(maxsplit=1)[1].strip()
+            if level not in DIFFICULTY_SIZES:
+                print("Unknown difficulty. Use: easy / normal / hard / lunatic")
+                continue
+            pending_size = DIFFICULTY_SIZES[level]
+            print(
+                f"Difficulty set to '{level}' ({pending_size}x{pending_size}). "
+                "It will apply from the next 'n' command."
+            )
+            continue
+        if raw in {"hint", "hi"}:
+            moves = game.solve_current_board()
+            if moves is None:
+                print("No solution found for current board.")
+                continue
+            if not moves:
+                print("Already solved! No moves needed.")
+                continue
+            x, y = moves[0]
+            print(f"Hint: try x={x}, y={y} (column={x}, row={y})")
+            continue
+        if raw in {"ans", "answer"}:
+            moves = game.solve_current_board()
+            if moves is None:
+                print("No solution found for current board.")
+                continue
+            if not moves:
+                print("Already solved! No moves needed.")
+                continue
+            formatted = ", ".join(f"({x}, {y})" for x, y in moves)
+            print(f"One solution ({len(moves)} moves): {formatted}")
             continue
 
         parts = raw.split()

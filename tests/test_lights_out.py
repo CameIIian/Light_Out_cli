@@ -50,9 +50,9 @@ class TestLightsOut(unittest.TestCase):
     def test_board_render(self):
         board = [[0, 1], [1, 0]]
         rendered = board_to_text(board)
-        self.assertIn("0 1", rendered)
-        self.assertIn("0  . #", rendered)
-        self.assertIn("1  # .", rendered)
+        self.assertIn("x→", rendered)
+        self.assertIn(" 0   .  #", rendered)
+        self.assertIn(" 1   #  .", rendered)
 
     def test_solvable_by_reverse_generation(self):
         game = LightsOutGame(size=5, seed=42)
@@ -84,6 +84,23 @@ class TestLightsOut(unittest.TestCase):
             size = None
 
         self.assertEqual(resolve_size(Args), 7)
+
+    def test_solver_returns_valid_solution(self):
+        game = LightsOutGame(size=5, seed=42)
+        moves = game.solve_current_board()
+        self.assertIsNotNone(moves)
+        assert moves is not None
+        work = [row[:] for row in game.state.board]
+        for x, y in moves:
+            game._toggle(work, x, y)
+        self.assertTrue(all(cell == 0 for row in work for cell in row))
+
+    def test_set_size_regenerates_board(self):
+        game = LightsOutGame(size=4, seed=1)
+        game.set_size(7)
+        self.assertEqual(game.size, 7)
+        self.assertEqual(game.state.size, 7)
+        self.assertEqual(len(game.state.board), 7)
 
 
 if __name__ == "__main__":
